@@ -1,25 +1,45 @@
 import org.aspectj.lang.reflect.SourceLocation;
-
 import java.io.*;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.util.UUID;
 
 public aspect Logger {
+    private UUID _id;
+    private LocalDateTime _time;
+    private SourceLocation _source;
+    private Object[] _args;
+    private String _classname;
+
+
+    /*
+     * Before the call to constructor to object instantiated from
+     * anything annotated with @logging
+     * Assign ID and record time of creation
+     */
+    before(): call(*.new(..)) && @within(logging) {
+        _id = UUID.randomUUID();
+        _time = LocalDateTime.now();
+        _source = thisJoinPoint.getSourceLocation();
+        _args = thisJoinPoint.getArgs();
+        _classname = thisJoinPoint.getSignature().getDeclaringTypeName();
+    }
+
+    /*
+     * After execution of constructor from object instantiated from
+     * anything annotated with @logging
+     * Log information to CSV
+     */
     after(): execution(*.new(..)) && @within(logging) {
-        String className = thisJoinPoint.getSignature().getDeclaringTypeName();
-        String filename = className + ".csv";
+        String filename = _classname + ".csv";
 
-        Object o = thisJoinPoint.getTarget();
-
-        String objectId = Integer.toHexString(System.identityHashCode(o));
-        LocalDateTime time = LocalDateTime.now();
-        SourceLocation sourceLocation = thisJoinPoint.getSourceLocation();
-        Object[] args = thisJoinPoint.getArgs();
+        Object obj = thisJoinPoint.getTarget();
+        ((Log)obj).setId(_id);
+        ((Log)obj).setToc(_time);
 
         try (PrintWriter out = new PrintWriter(new FileWriter(filename, true))) {
             StringBuilder argString = new StringBuilder();
 
-            for (Object arg : args) {
+            for (Object arg : _args) {
                 if (arg != null && arg.getClass().isAnnotationPresent(logging.class)) {
                     argString.append(Integer.toHexString(System.identityHashCode(arg)));
                 } else {
@@ -28,59 +48,50 @@ public aspect Logger {
                 argString.append(", ");
             }
 
-            out.printf("%s, %s, %s, %s\n", objectId, time, sourceLocation, argString.toString());
+            out.printf("%s, %s, %s, %s\n", _id, _time, _source, argString.toString());
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
 
-    // Inter-type declaration to add olderThan method
-    public boolean Object.olderThan(Object x) {
-        if (this.getClass().isAnnotationPresent(logging.class) &&
-                x.getClass().isAnnotationPresent(logging.class)) {
-            String className = this.getClass().getName();
-            String filename = className + ".csv";
-            String objectId = Integer.toHexString(System.identityHashCode(this));
-            LocalDateTime timeOfCreation = null;
-
-            try (BufferedReader reader = new BufferedReader(new FileReader(filename))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    String[] parts = line.split(", ");
-                    if (parts.length >= 2 && parts[0].equals(objectId)) {
-                        timeOfCreation = LocalDateTime.parse(parts[1], DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-                    }
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+    /*
+     * Interface for annotations of @logging to implement
+     */
+    interface Log {}
 
 
 
-            String className2 = x.getClass().getName();
-            String filename2 = className2 + ".csv";
-            String objectId2 = Integer.toHexString(System.identityHashCode(x));
-            LocalDateTime timeOfCreation2 = null;
+    private UUID Log.id;
+    private LocalDateTime Log.toc;
 
-            try (BufferedReader reader = new BufferedReader(new FileReader(filename2))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    String[] parts = line.split(", ");
-                    if (parts.length >= 2 && parts[0].equals(objectId2)) {
-                        timeOfCreation2 = LocalDateTime.parse(parts[1], DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-                    }
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+    public UUID Log.getId() {return id;}
+    public void Log.setId(UUID n) {id = n;}
+    public LocalDateTime Log.getToc() {return toc;}
+    public void Log.setToc(LocalDateTime t) {toc = t;}
 
-            System.out.println(timeOfCreation);
-            System.out.println(timeOfCreation2);
 
+
+    /*
+     * Inter-type declaration
+     * Return true if time of creation of object x is later
+     * than this time of creation
+     */
+    public boolean Log.olderThan(Object x) {
+        if (x.getClass().isAnnotationPresent(logging.class)) {
+            LocalDateTime timeOfCreation = this.getToc();
+
+            LocalDateTime timeOfCreation2 = ((Log)x).getToc();
 
             return timeOfCreation != null && timeOfCreation2 != null && timeOfCreation.isBefore(timeOfCreation2);
         }
         return false;
     }
+
+
+
+    /*
+     * Annotations of @logging implement Log
+     */
+    declare parents : @logging * implements Log;
 }

@@ -16,6 +16,6 @@ public class TestObj {
         TestObj o2 = new TestObj();
         o2.sayHi();
 
-        System.out.println(o2.olderThan(o));
+        System.out.println(o.olderThan(o2));
     }
 }
